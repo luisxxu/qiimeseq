@@ -75,7 +75,7 @@ echo "Metadata file '$metadata_file' created."
 
 # activate qiime
 source ~/.zshrc
-conda activate qiime2-2023.7
+conda activate qiime2-2023.2
 
 # generate demux
 qiime tools import \
