@@ -1,6 +1,6 @@
 # qiimeseq
 
-Make sure to install EDirect, SRAToolkit, and Qiime2-2023.7 before running the script.
+Make sure to install EDirect, SRAToolkit, and Qiime2-2023.2 before running the script.
 
 # EDirect Installation
 ```
@@ -13,8 +13,8 @@ sh -c "$(wget -q https://ftp.ncbi.nlm.nih.gov/entrez/entrezdirect/install-edirec
 Make sure to keep track of where you unzip SRAToolkit, this will be important later!
 
 
-# Qiime2-2023.7 Installation
-[Qiime2 Installation Instructions](https://docs.qiime2.org/2023.7/install/)
+# Qiime2-2023.2 Installation
+[Qiime2 Installation Instructions](https://docs.qiime2.org/2023.2/install/)
 
 # Running the script
 The script only takes one parameter: the file location of sratoolkit/bin. For example, this is how my code is run:
