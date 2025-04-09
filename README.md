@@ -19,7 +19,7 @@ Make sure to keep track of where you unzip SRAToolkit, this will be important la
 # Running the script
 The script only takes one parameter: the file location of sratoolkit/bin. For example, this is how my code is run:
 ```
-bash qiime2-pipe.sh /Users/luisxu/Documents/HMTOL/sratoolkit.3.2.1-mac-arm64/bin
+bash qiimeseq.sh /Users/luisxu/Documents/HMTOL/sratoolkit.3.2.1-mac-arm64/bin
 ```
 The name/location of your sratoolkit file may be different, so change accordingly. You can also run "pwd" once you're inside the sratoolkit/bin folder.
 
