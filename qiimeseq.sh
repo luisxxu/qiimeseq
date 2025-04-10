@@ -6,7 +6,7 @@ export PATH=${HOME}/edirect:${PATH}
 export PATH=$toolkitpath:$PATH
 
 # prompt user for info
-read -p "Study name (e.g. ColstonJackson-et-al-2021) (NO UNDERSCORES): " name
+read -p "Study name (e.g. FlorjanRupnikSlovenia2024) (NO PUNCTUATION/SPACES): " name
 read -p "Country: " location
 read -p "Continent: " continent
 read -p "Accession Number: " accession
