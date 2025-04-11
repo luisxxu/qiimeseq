@@ -33,14 +33,21 @@ head -n 30 $accession".csv" > temp.csv && mv temp.csv $accession".csv"
 # download sample accessions
 while IFS= read -r sample
 do
-  prefetch -q --max-size 1g $sample
+  prefetch_output=$(prefetch -q --max-size 500m "$sample" 2>&1)
+
+  # Check if size error occurred
+  if echo "$prefetch_output" | grep -q "is larger than maximum allowed: skipped"; then
+    echo "Skipping $sample due to size limit."
+    continue
+  fi
   fasterq-dump -q $sample
   if ! ls *_1.fastq 1> /dev/null 2>&1; then
     echo "WARNING: No paired end reads found."
+    rm *.fastq
   else
     rm "$sample""_2.fastq"
+    mv *.fastq ../"$name"-fastq-files
   fi
-  mv *.fastq ../"$name"-fastq-files
 done < $accession".csv"
 
 # cleanup
@@ -112,6 +119,9 @@ qiime deblur denoise-16S \
 
 # move all files to single directory
 mkdir $name
+cd "$name"-fastq-files
+gzip *.fastq
+cd ..
 mv "$name"-fastq-files $name
 mv deblur.log $name
 mv $name-* $name
