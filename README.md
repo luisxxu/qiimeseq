@@ -4,6 +4,8 @@ Downloading and sanitizing data for analysis is an incredibly arduous task that 
 
 The script takes metadata fields and a project accession number, then downloads the fastq files and uses Qiime2's tools (demux, quality-filter, deblur) to produce visualizations and other files necessary for analysis.
 
+Special thanks to Sam, Noah, and Ananya for their contributions to this project.
+
 Make sure to install EDirect, SRAToolkit, and Qiime2-2023.2 before running the script.
 
 # EDirect Installation
