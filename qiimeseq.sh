@@ -33,7 +33,7 @@ head -n 30 $accession".csv" > temp.csv && mv temp.csv $accession".csv"
 # download sample accessions
 while IFS= read -r sample
 do
-  prefetch_output=$(prefetch -q --max-size 500m "$sample" 2>&1)
+  prefetch_output=$(prefetch -q --min-size 10m --max-size 500m "$sample" 2>&1)
 
   # Check if size error occurred
   if echo "$prefetch_output" | grep -q "is larger than maximum allowed: skipped"; then
