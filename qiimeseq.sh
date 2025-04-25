@@ -43,7 +43,6 @@ do
   fasterq-dump -q $sample
   if ! ls *_1.fastq 1> /dev/null 2>&1; then
     echo "WARNING: No paired end reads found."
-    rm *.fastq
   else
     rm "$sample""_2.fastq"
     mv *.fastq ../"$name"-fastq-files
