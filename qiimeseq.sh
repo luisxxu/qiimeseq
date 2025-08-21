@@ -1,126 +1,23 @@
-#!/bin/bash
+wget -O gmtol.tsv "https://docs.google.com/spreadsheets/d/1uxOu99l7wGm_hghIer-HcNrSp1DF7qE2b6INBigrwx8/export?format=tsv" > /dev/null 2>&1
 
-toolkitpath=$1
+num_jobs=$(wc -l < gmtol.tsv)
+num_jobs=$((num_jobs + 1)) # add one for header line
+echo $num_jobs
 
-export PATH=${HOME}/edirect:${PATH}
-export PATH=$toolkitpath:$PATH
+#echo "Starting download of deblur data for $((num_jobs - 1)) studies."
+JOB_1=$(sbatch --array=2-$num_jobs%2 downloaddeblur.sbatch gmtol.tsv | cut -d' ' -f4)
+echo "Job 1: $JOB_1"
 
-# prompt user for info
-read -p "Study name (e.g. FlorjanRupnikSlovenia2024) (NO PUNCTUATION/SPACES): " name
-read -p "Country: " location
-read -p "Continent: " continent
-read -p "Accession Number: " accession
-read -p "Notes: " notes
-read -p "Forward primer: " forward
-read -p "Reverse primer: " reverse
-read -p "Primer (V4 or V3-V4): " primer
-read -p "Age (Adults/Children/Both): " age
-read -p "Sex (Male/Female/Both): " sex
-read -p "Disease: " disease
-read -p "Disease Group: " disease_group
-read -p "Initials: " initials
+#echo "Download of deblur data completed. Checking missing files."
+JOB_2=$(sbatch --dependency=afterok:${JOB_1} missing.sbatch | cut -d' ' -f4)
+echo "Job 2: $JOB_2"
 
-# generate temp directory for fastq files
-mkdir "$name"-fastq-files
-mkdir "$accession"
-cd "$accession"
+#echo "Merging data."
+JOB_3=$(sbatch --dependency=afterok:${JOB_2} merge.sbatch | cut -d' ' -f4)
+echo "Job 3: $JOB_3"
 
-# grab 30 sample accessions from project accession
-esearch -db sra -query $accession | efetch -format runinfo | cut -d "," -f 1 > $accession".csv"
-tail -n +2 $accession".csv" > temp.csv && mv temp.csv $accession".csv"
-head -n 30 $accession".csv" > temp.csv && mv temp.csv $accession".csv"
+#echo "Running greengenes2 mapping and generating core metrics."
+JOB_4=$(sbatch --dependency=afterok:${JOB_3} greengenes.sbatch | cut -d' ' -f4)
+echo "Job 4: $JOB_4"
 
-# download sample accessions
-while IFS= read -r sample
-do
-  prefetch_output=$(prefetch -q --min-size 10m --max-size 500m "$sample" 2>&1)
-
-  # Check if size error occurred
-  if echo "$prefetch_output" | grep -q "is larger than maximum allowed: skipped"; then
-    echo "Skipping $sample due to size limit."
-    continue
-  fi
-  fasterq-dump -q $sample
-  if ! ls *_1.fastq 1> /dev/null 2>&1; then
-    echo "WARNING: No paired end reads found."
-  else
-    rm "$sample""_2.fastq"
-    mv *.fastq ../"$name"-fastq-files
-  fi
-done < $accession".csv"
-
-# cleanup
-cd ..
-rm -rf "$accession"
-
-cd "$name"-fastq-files
-
-# generate metadata file name
-metadata_file="$name""-""metadata.txt"
-
-# generate manifest file name
-manifest_file="$name""-""manifest.txt"
-counter=1
-
-# headers for manifest file
-echo -e "sample-id\tabsolute-filepath" > "$manifest_file"
-
-# write sample-ids/filepaths to manifest file
-# write sample-ids and other info to metadata file
-for file in *fastq; do
-    filepath="$PWD""/""$file"
-    filename="$name""-""$counter"
-    sample_id="${filename%.*}"
-    echo -e "$sample_id\t$filepath" >> "$manifest_file"
-    echo -e "$sample_id\t$notes\t$primer\t$forward\t$reverse\t$location\t$initials\t$age\t$sex\t$disease\t$accession" >> "$metadata_file"
-
-    ((counter+=1))
-done
-
-mv *.txt ..
-cd ..
-
-echo "Manifest file '$manifest_file' created."
-echo "Metadata file '$metadata_file' created."
-
-# activate qiime
-source ~/.zshrc
-conda activate qiime2-2023.2
-
-# generate demux
-qiime tools import \
-    --type 'SampleData[SequencesWithQuality]' \
-    --input-path "$name"-manifest.txt \
-    --output-path "$name"-demux.qza \
-    --input-format SingleEndFastqManifestPhred33V2
-
-# generate demux visualization
-qiime demux summarize \
-    --i-data "$name"-demux.qza \
-    --o-visualization "$name"-demux.qzv
-
-# generate quality scores for deblur
-qiime quality-filter q-score \
-    --i-demux "$name"-demux.qza \
-    --o-filtered-sequences "$name"-demux-filtered.qza \
-    --o-filter-stats "$name"-demux-filter-stats.qza
-
-# run deblur at 150bp
-qiime deblur denoise-16S \
-  --i-demultiplexed-seqs "$name"-demux-filtered.qza \
-  --p-trim-length 150 \
-  --p-left-trim-len 0 \
-  --p-jobs-to-start 4 \
-  --o-representative-sequences "$name"-rep-seqs-deblur.qza \
-  --o-table "$name"-table-deblur.qza \
-  --p-sample-stats \
-  --o-stats "$name"-deblur-stats.qza
-
-# move all files to single directory
-mkdir $name
-cd "$name"-fastq-files
-gzip *.fastq
-cd ..
-mv "$name"-fastq-files $name
-mv deblur.log $name
-mv $name-* $name
+echo "All jobs submitted. Good luck."
