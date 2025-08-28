@@ -32,3 +32,15 @@ qiime diversity core-metrics-phylogenetic \
 
 rm 2022.10.backbone.full-length.fna.qza
 rm 2022.10.phylogeny.id.nwk.qza
+
+rm sheet.tsv
+
+mv finishedtables projects
+mv missingfiles error_projects
+mv core-metrics-results visualizations
+
+mkdir merged_files
+mv merged* merged_files
+
+mkdir output
+mv visualizations projects error_projects merged_files output
