@@ -13,12 +13,12 @@ mkdir deblurtables
 
 while IFS= read -r line; do
     line=$(echo $line | tr -d './')
-    cp ${line}/*-metadata.txt ${line}/*-table-deblur* ${line}/*-rep-seqs* deblurtables
+    cp ${line}/*combined-metadata.txt ${line}/*-table-deblur* ${line}/*-rep-seqs* deblurtables
 done < "finisheddeblurtables.txt"
 
 cd "deblurtables"
 
-for file in *metadata*; do
+for file in *combined-metadata*; do
     if [[ -f "merged_metadata.txt" ]]; then
         tail -n +2 $file >> "merged_metadata.txt" 
     else

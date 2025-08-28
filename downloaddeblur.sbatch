@@ -33,145 +33,84 @@ accession=$(echo "$accession" | tr -d '[:space:]')
 
 echo "Processing study: $study with accession: $accession"
 
-# generate study's directory
-if [ -d $study ] && [ -d "$study/$accession" ] && [ ! -s "$study/$accession/missing_files.txt"]; then
-    echo "Study directory $study/$accession already exists. Skipping download step."
-    cd $study
-elif [ -d $study ] && [ -d "$study/$accession" ] && [ -s "$study/$accession/missing_files.txt" ]; then
-    cd $study
-    echo "Study directory $study/$accession already exists but has missing files. Retrying downloads."
-    grep -o '"fastq_ftp":"[^"]*"' "${accession}/${accession}.json" | sed 's/"fastq_ftp":"//' | tr ';' '\n' | sed 's/"$//' > "${accession}/urls.txt"
+echo "No previous study directory found. Creating new directory."
 
-    URL_FILE="${accession}/urls.txt"
-    DOWNLOAD_DIR="${accession}"
-    MISSING_NAMES="${accession}/missing_files.txt"
-    MISSING_URLS="${accession}/missing_urls.txt"
-    FINAL_NAMES="${accession}/final_missing_files.txt"
+mkdir "$study"
+cd "$study"
+mkdir "$accession"
 
-    retries=0
-
-    # Loop until there are no missing files
-    while true; do
-        echo "Checking for missing files..."
-
-        # Extract expected filenames
-        basename -a $(cat "$URL_FILE") | sort > "${accession}/expected_files.txt"
-
-        # Get downloaded filenames
-        ls "$DOWNLOAD_DIR" | sort > "${accession}/downloaded_files.txt"
-
-        # Find missing files by comparing expected vs downloaded
-        comm -23 "${accession}/expected_files.txt" "${accession}/downloaded_files.txt" > "$MISSING_NAMES"
-
-        # If no missing files, exit loop
-        if [[ ! -s "$MISSING_NAMES" ]]; then
-            echo "All files downloaded."
-            break
-        fi
-
-        if (( retries >= 20 )); then
-            echo "Maximum retries reached. Exiting."
-            echo "Missing files: $(cat "$MISSING_NAMES")"
-            break
-        fi
-
-        # Extract missing file URLs
-        grep -Ff "$MISSING_NAMES" "$URL_FILE" > "$MISSING_URLS"
-
-        echo "Retrying download of missing files..."
-        count=0
-        while read -r url; do
-            wget --tries=5 --waitretry=5 -c "ftp://$url" -P "$DOWNLOAD_DIR" &
-            ((count++))
-            if ((count % 8 == 0)); then
-                wait
-            fi
-        done < "$MISSING_URLS"
-
-        wait  # Ensure all background downloads finish before next loop
-        retries=$((retries + 1))
-    done
-else
-    echo "No previous study directory found. Creating new directory."
-
-    mkdir "$study"
-    cd "$study"
-    mkdir "$accession"
-
-    # download fastq files from study json using ftp links
-    count=0
-    {
-        curl -s "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=${accession}&result=read_run&fields=study_accession,sample_accession,experiment_accession,run_accession,tax_id,scientific_name,fastq_ftp,submitted_ftp,sra_ftp,bam_ftp&format=json&download=true&limit=0" >  "${accession}/${accession}.json"
-        grep -o '"fastq_ftp":"[^"]*"' "${accession}/${accession}.json" | \
-        sed 's/"fastq_ftp":"//' | \
-        tr ';' '\n' | \
-        sed 's/"$//' | \
-        while read -r url; do
-            if [ -n "$url" ]; then
-                wget --tries=5 --waitretry=5 -c "ftp://$url" -P "${accession}" &
-                ((count++))
-                if ((count % 8 == 0)); then
-                    wait
+# download fastq files from study txt using ftp links
+count=0
+{
+    curl -s "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=${accession}&result=read_run&fields=library_strategy,fastq_ftp&format=tsv&download=true&limit=0" >  "${accession}/${accession}.txt"
+    tail -n +2 "${accession}/${accession}.txt" | while read -r run ftp strategy; do
+        if [ "$strategy" = "AMPLICON" ]; then
+            echo "$ftp" | tr ';' '\n' | while read -r url; do
+                if [ -n "$url" ]; then
+                    wget --tries=5 --waitretry=5 -c "ftp://$url" -P "${accession}" &
+                    ((count++))
+                    if ((count % 8 == 0)); then
+                        wait
+                    fi
                 fi
-            fi
-        done
-        wait
-    } > /dev/null 2>&1
-
-    echo "Initial downloads complete. Retrying downloads on missing files now."
-
-    grep -o '"fastq_ftp":"[^"]*"' "${accession}/${accession}.json" | sed 's/"fastq_ftp":"//' | tr ';' '\n' | sed 's/"$//' > "${accession}/urls.txt"
-
-    URL_FILE="${accession}/urls.txt"
-    DOWNLOAD_DIR="${accession}"
-    MISSING_NAMES="${accession}/missing_files.txt"
-    MISSING_URLS="${accession}/missing_urls.txt"
-    FINAL_NAMES="${accession}/final_missing_files.txt"
-
-    retries=0
-
-    # Loop until there are no missing files
-    while true; do
-        echo "Checking for missing files..."
-
-        # Extract expected filenames
-        basename -a $(cat "$URL_FILE") | sort > "${accession}/expected_files.txt"
-
-        # Get downloaded filenames
-        ls "$DOWNLOAD_DIR" | sort > "${accession}/downloaded_files.txt"
-
-        # Find missing files by comparing expected vs downloaded
-        comm -23 "${accession}/expected_files.txt" "${accession}/downloaded_files.txt" > "$MISSING_NAMES"
-
-        # If no missing files, exit loop
-        if [[ ! -s "$MISSING_NAMES" ]]; then
-            echo "All files downloaded."
-            break
+            done
         fi
-
-        if (( retries >= 20 )); then
-            echo "Maximum retries reached. Exiting."
-            echo "Missing files: $(cat "$MISSING_NAMES")"
-            break
-        fi
-
-        # Extract missing file URLs
-        grep -Ff "$MISSING_NAMES" "$URL_FILE" > "$MISSING_URLS"
-
-        echo "Retrying download of missing files..."
-        count=0
-        while read -r url; do
-            wget --tries=5 --waitretry=5 -c "ftp://$url" -P "$DOWNLOAD_DIR" &
-            ((count++))
-            if ((count % 8 == 0)); then
-                wait
-            fi
-        done < "$MISSING_URLS"
-
-        wait  # Ensure all background downloads finish before next loop
-        retries=$((retries + 1))
     done
-fi
+} > /dev/null 2>&1
+
+echo "Initial downloads complete. Retrying downloads on missing files now."
+
+awk -F'\t' 'NR>1 && $3=="AMPLICON" {n=split($2, urls, ";"); for(i=1;i<=n;i++) print urls[i]}' "${accession}/${accession}.txt" > "${accession}/urls.txt"
+
+URL_FILE="${accession}/urls.txt"
+DOWNLOAD_DIR="${accession}"
+MISSING_NAMES="${accession}/missing_files.txt"
+MISSING_URLS="${accession}/missing_urls.txt"
+FINAL_NAMES="${accession}/final_missing_files.txt"
+
+retries=0
+
+# Loop until there are no missing files
+while true; do
+    echo "Checking for missing files..."
+
+    # Extract expected filenames
+    basename -a $(cat "$URL_FILE") | sort > "${accession}/expected_files.txt"
+
+    # Get downloaded filenames
+    ls "$DOWNLOAD_DIR" | sort > "${accession}/downloaded_files.txt"
+
+    # Find missing files by comparing expected vs downloaded
+    comm -23 "${accession}/expected_files.txt" "${accession}/downloaded_files.txt" > "$MISSING_NAMES"
+
+    # If no missing files, exit loop
+    if [[ ! -s "$MISSING_NAMES" ]]; then
+        echo "All files downloaded."
+        break
+    fi
+
+    if (( retries >= 20 )); then
+        echo "Maximum retries reached. Exiting."
+        echo "Missing files: $(cat "$MISSING_NAMES")"
+        break
+    fi
+
+    # Extract missing file URLs
+    grep -Ff "$MISSING_NAMES" "$URL_FILE" > "$MISSING_URLS"
+
+    echo "Retrying download of missing files..."
+    count=0
+    while read -r url; do
+        wget --tries=5 --waitretry=5 -c "ftp://$url" -P "$DOWNLOAD_DIR" &
+        ((count++))
+        if ((count % 8 == 0)); then
+            wait
+        fi
+    done < "$MISSING_URLS"
+
+    wait  # Ensure all background downloads finish before next loop
+    retries=$((retries + 1))
+done
 
 echo "Done with download step. Generating metadata and manifest files."
 
@@ -234,6 +173,12 @@ mv "${name}-metadata_counts.txt" "$metadata_file"
 
 echo "Manifest file '$manifest_file' created."
 echo "Metadata file '$metadata_file' created."
+
+curl -s "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=${accession}&result=read_run&fields=sample_accession,library_name,secondary_sample_accession,run_accession,experiment_accession,fastq_bytes,fastq_ftp,fastq_md5,library_source,instrument_platform,submitted_format,library_strategy,library_layout,tax_id,scientific_name,instrument_model,library_selection,center_name,experiment_title,study_title,study_alias,experiment_alias,sample_alias,sample_title,study_accession&format=tsv&download=true&limit=0" > "${name}-ena-metadata.txt"
+
+cp ../metadata.py .
+python metadata.py $name
+rm metadata.py
 
 # activate qiime
 source ~/miniforge3/etc/profile.d/conda.sh
