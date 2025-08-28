@@ -1,6 +1,7 @@
-wget -O gmtol.tsv "https://docs.google.com/spreadsheets/d/1uxOu99l7wGm_hghIer-HcNrSp1DF7qE2b6INBigrwx8/export?format=tsv" > /dev/null 2>&1
+url=$1
+curl -L "$(echo "$url" | sed -E 's|/edit.*gid=([0-9]+).*|/export?format=tsv\&gid=\1|')" -o sheet.tsv
 
-num_jobs=$(wc -l < gmtol.tsv)
+num_jobs=$(wc -l < sheet.tsv)
 num_jobs=$((num_jobs + 1)) # add one for header line
 echo $num_jobs
 
