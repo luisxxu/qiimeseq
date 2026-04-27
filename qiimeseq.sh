@@ -6,7 +6,7 @@ num_jobs=$((num_jobs + 1)) # add one for header line
 echo $num_jobs
 
 #echo "Starting download of deblur data for $((num_jobs - 1)) studies."
-JOB_1=$(sbatch --array=2-$num_jobs%4 downloaddeblur.sbatch gmtol.tsv | cut -d' ' -f4)
+JOB_1=$(sbatch --array=2-$num_jobs%4 downloaddeblur.sbatch sheet.tsv | cut -d' ' -f4)
 echo "Job 1: $JOB_1"
 
 #echo "Download of deblur data completed. Checking missing files."
