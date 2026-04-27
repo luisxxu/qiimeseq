@@ -43,7 +43,7 @@ mkdir "$accession"
 count=0
 {
     curl -s "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=${accession}&result=read_run&fields=library_strategy,fastq_ftp&format=tsv&download=true&limit=0" >  "${accession}/${accession}.txt"
-    tail -n +2 "${accession}/${accession}.txt" | while read -r run ftp strategy; do
+    tail -n +2 "${accession}/${accession}.txt" | while read -r run strategy ftp; do
         if [ "$strategy" = "AMPLICON" ]; then
             echo "$ftp" | tr ';' '\n' | while read -r url; do
                 if [ -n "$url" ]; then
@@ -60,7 +60,8 @@ count=0
 
 echo "Initial downloads complete. Retrying downloads on missing files now."
 
-awk -F'\t' 'NR>1 && $3=="AMPLICON" {n=split($2, urls, ";"); for(i=1;i<=n;i++) print urls[i]}' "${accession}/${accession}.txt" > "${accession}/urls.txt"
+# Extract full URLs from the accession file
+awk -F'\t' 'NR>1 && $2=="AMPLICON" {n=split($3, urls, ";"); for(i=1;i<=n;i++) if(urls[i]!="") print urls[i]}' "${accession}/${accession}.txt" > "${accession}/urls.txt"
 
 URL_FILE="${accession}/urls.txt"
 DOWNLOAD_DIR="${accession}"
@@ -74,11 +75,11 @@ retries=0
 while true; do
     echo "Checking for missing files..."
 
-    # Extract expected filenames
-    basename -a $(cat "$URL_FILE") | sort > "${accession}/expected_files.txt"
+    # Extract expected filenames from URLs
+    awk -F'/' '{print $NF}' "$URL_FILE" | sort > "${accession}/expected_files.txt"
 
-    # Get downloaded filenames
-    ls "$DOWNLOAD_DIR" | sort > "${accession}/downloaded_files.txt"
+    # Get downloaded filenames (excluding metadata files)
+    ls "$DOWNLOAD_DIR" | grep -v '\.txt$' | sort > "${accession}/downloaded_files.txt"
 
     # Find missing files by comparing expected vs downloaded
     comm -23 "${accession}/expected_files.txt" "${accession}/downloaded_files.txt" > "$MISSING_NAMES"
@@ -95,10 +96,13 @@ while true; do
         break
     fi
 
-    # Extract missing file URLs
-    grep -Ff "$MISSING_NAMES" "$URL_FILE" > "$MISSING_URLS"
+    # Extract missing file URLs by matching filenames
+    > "$MISSING_URLS"  # Clear the file
+    while read -r missing_file; do
+        grep "/${missing_file}$" "$URL_FILE" >> "$MISSING_URLS"
+    done < "$MISSING_NAMES"
 
-    echo "Retrying download of missing files..."
+    echo "Retrying download of missing files (attempt $((retries + 1)))..."
     count=0
     while read -r url; do
         wget --tries=5 --waitretry=5 -c "ftp://$url" -P "$DOWNLOAD_DIR" &
@@ -126,7 +130,6 @@ echo -e "sample-id\tabsolute-filepath" > "$manifest_file"
 echo -e "${header_line}" > "$metadata_file"
 
 name=$study
-max_files=500
 
 for file in "$accession"/*.fastq.gz; do
     # Skip files that already have _1 or _2 before .fastq.gz
@@ -151,10 +154,6 @@ for file in "$accession"/*_1.*; do
     echo -e "$sample_id\t$filepath" >> "$manifest_file"
     echo -e "$data_line" >> "$metadata_file"
     ((counter+=1))
-    if [ $counter -ge $max_files ]; then
-        echo "Reached limit of $max_files files. Stopping."
-        break
-    fi
 done
 
 # number metadata rows and change header
@@ -193,12 +192,43 @@ qiime tools import \
     --output-path "$name"-seqs.qza \
     --input-format SingleEndFastqManifestPhred33V2
 
+# retry import if seqs file is missing
+import_retries=0
+while [[ ! -f "$name"-seqs.qza ]]; do
+    if (( import_retries >= 3 )); then
+        echo "Import failed after 3 retries. Exiting."
+        exit 1
+    fi
+    echo "Import output file missing. Retrying import..."
+    qiime tools import \
+        --type 'SampleData[SequencesWithQuality]' \
+        --input-path "$name"-manifest.txt \
+        --output-path "$name"-seqs.qza \
+        --input-format SingleEndFastqManifestPhred33V2
+    ((import_retries++))
+done
+
 echo "Denoising with deblur..."
 # generate quality scores for deblur
 qiime quality-filter q-score \
     --i-demux "$name"-seqs.qza \
     --o-filtered-sequences "$name"-demux-filtered.qza \
     --o-filter-stats "$name"-demux-filter-stats.qza
+
+# retry quality filter if filtered file is missing
+qf_retries=0
+while [[ ! -f "$name"-demux-filtered.qza ]]; do
+    if (( qf_retries >= 3 )); then
+        echo "Quality filter failed after 3 retries. Exiting."
+        exit 1
+    fi
+    echo "Quality filter output file missing. Retrying quality filter..."
+    qiime quality-filter q-score \
+        --i-demux "$name"-seqs.qza \
+        --o-filtered-sequences "$name"-demux-filtered.qza \
+        --o-filter-stats "$name"-demux-filter-stats.qza
+    ((qf_retries++))
+done
 
 # run deblur at 150bp
 qiime deblur denoise-16S \
@@ -211,3 +241,24 @@ qiime deblur denoise-16S \
     --p-sample-stats \
     --o-stats "$name"-deblur-stats.qza \
     --verbose
+
+# retry deblur if deblur files are missing
+deblur_retries=0
+while [[ ! -f "$name"-rep-seqs-deblur.qza || ! -f "$name"-table-deblur.qza ]]; do
+    if (( deblur_retries >= 3 )); then
+        echo "Deblur failed after 3 retries. Exiting."
+        exit 1
+    fi
+    echo "Deblur output files missing. Retrying deblur..."
+    qiime deblur denoise-16S \
+        --i-demultiplexed-seqs "$name"-demux-filtered.qza \
+        --p-trim-length 150 \
+        --p-left-trim-len 0 \
+        --p-jobs-to-start 8 \
+        --o-representative-sequences "$name"-rep-seqs-deblur.qza \
+        --o-table "$name"-table-deblur.qza \
+        --p-sample-stats \
+        --o-stats "$name"-deblur-stats.qza \
+        --verbose
+    ((deblur_retries++))
+done
